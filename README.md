@@ -1,4 +1,4 @@
-# Talarklokke
+# Taiming
 
 > **A single-file countdown timer for seminars and conferences.** Click a preset button to start counting down. Designed for projecting on a screen so speakers can see their remaining time. No dependencies, no build step — just open `index.html` in a browser.
 
@@ -6,7 +6,7 @@
 
 ## Kva er dette?
 
-Talarklokke er eit enkelt nedteljingsverktøy laga for seminar og konferansar der fleire talarar har ulik taletid. I staden for å halda styr på klokka og rekna ut når kvar talar skal vera ferdig, trykker du berre på ein knapp — til dømes **10 min** — og nedteljinga startar med ein gong.
+Taiming er eit enkelt nedteljingsverktøy laga for seminar og konferansar der fleire talarar har ulik taletid. I staden for å halda styr på klokka og rekna ut når kvar talar skal vera ferdig, trykker du berre på ein knapp — til dømes **10 min** — og nedteljinga startar med ein gong.
 
 Alt ligg i éi einaste HTML-fil. Ingen avhengnadar, ingen byggesteg, ingen server. Opne fila i ein nettlesar, og du er klar.
 
