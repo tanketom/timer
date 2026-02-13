@@ -58,7 +58,3 @@ Trykk **Lagre** når du er ferdig. Innstillingane vert lagra i nettlesaren og er
 - Tidtaking basert på `performance.now()` for nøyaktig nedteljing sjølv om nettlesarfana er i bakgrunnen
 - Lydsignal laga med Web Audio API (sinustonar, ingen eksterne filer)
 - Førehandsval lagra i `localStorage`
-
-## Lisens
-
-MIT
