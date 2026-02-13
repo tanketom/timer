@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="nn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Talarklokke</title>
+  <style>
+    /* Lastar DSEG7-skrifttypen for sjusegment-visning */
+    @font-face {
+      font-family: 'DSEG7 Classic';
+      src: url('https://cdn.jsdelivr.net/fontsource/fonts/dseg7-classic@latest/latin-400-normal.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    /* Nullstilling og grunnstil */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      width: 100%;
+      max-width: 1200px;
+      padding: 2rem;
+    }
+
+    /* ── Nedteljingsvisning ── */
+    #timer-container {
+      position: relative;
+      width: 100%;
+      text-align: center;
+    }
+
+    #timer-display {
+      position: relative;
+      display: inline-block;
+      font-family: 'DSEG7 Classic', 'Courier New', monospace;
+      font-size: clamp(6rem, 22vw, 22rem);
+      line-height: 1;
+      letter-spacing: 0.05em;
+    }
+
+    /* Dimme bakgrunnssiffrer som etterliknar uaktive LCD-segment */
+    #timer-ghost {
+      color: rgba(0, 255, 65, 0.06);
+      user-select: none;
+      pointer-events: none;
+    }
+
+    /* Aktive siffrer, plasserte oppå spøkelseslaget */
+    #timer-value {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transition: color 0.5s ease;
+    }
+
+    /* Fargetilstandar for nedteljinga */
+    #timer-display.state-idle #timer-value { color: #336633; }
+    #timer-display.state-idle #timer-ghost { color: rgba(0, 255, 65, 0.04); }
+
+    /* Kvit tekst medan nedteljinga går (meir enn 2 min att) */
+    #timer-display.state-green #timer-value { color: #ffffff; }
+    #timer-display.state-green #timer-ghost { color: rgba(255, 255, 255, 0.06); }
+
+    /* Framleis kvit tekst (under 2 min att) */
+    #timer-display.state-yellow #timer-value { color: #ffffff; }
+    #timer-display.state-yellow #timer-ghost { color: rgba(255, 255, 255, 0.06); }
+
+    /* Raud tekst (under 30 sekund att) */
+    #timer-display.state-red #timer-value { color: #ff2020; }
+    #timer-display.state-red #timer-ghost { color: rgba(255, 32, 32, 0.07); }
+
+    /* Blinkande raud tekst når tida er ute */
+    #timer-display.state-expired #timer-value {
+      color: #ff2020;
+      animation: blink 0.5s step-end infinite;
+    }
+    #timer-display.state-expired #timer-ghost { color: rgba(255, 32, 32, 0.07); }
+
+    /* Gul tekst når nedteljinga er sett på pause */
+    #timer-display.state-paused #timer-value {
+      color: #ffdd00 !important;
+      animation: blink-slow 1.2s step-end infinite;
+    }
+    #timer-display.state-paused #timer-ghost { color: rgba(255, 221, 0, 0.06); }
+
+    /* Blinkanimasjonar */
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
+    @keyframes blink-slow {
+      0%, 69% { opacity: 1; }
+      70%, 100% { opacity: 0.3; }
+    }
+
+    /* ── Statusmelding og overtid ── */
+    #status-message {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: clamp(1.5rem, 4vw, 3.5rem);
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      color: #ff2020;
+      min-height: 1.5em;
+      visibility: hidden;
+      animation: blink 0.6s step-end infinite;
+    }
+    #status-message.visible { visibility: visible; }
+
+    #overtime-display {
+      font-family: 'DSEG7 Classic', 'Courier New', monospace;
+      font-size: clamp(1.5rem, 5vw, 5rem);
+      color: #ff6060;
+      display: none;
+    }
+
+    /* ── Førehandsvalde knappar for taletid ── */
+    #presets {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+
+    .preset-btn {
+      background: #111122;
+      border: 2px solid #00ff41;
+      color: #00ff41;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: clamp(1rem, 2.5vw, 1.4rem);
+      font-weight: 700;
+      padding: 0.6em 1.3em;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, transform 0.1s, box-shadow 0.15s;
+      min-width: 5.5em;
+      user-select: none;
+    }
+    .preset-btn:hover {
+      background: #00ff41;
+      color: #0a0a0a;
+    }
+    .preset-btn:active {
+      transform: scale(0.95);
+    }
+    .preset-btn.active {
+      background: #00ff41;
+      color: #0a0a0a;
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.35);
+    }
+
+    /* ── Kontrollknappar ── */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .control-btn {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      color: #aaa;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: clamp(0.75rem, 1.4vw, 1rem);
+      font-weight: 600;
+      padding: 0.5em 1.1em;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+      letter-spacing: 0.05em;
+    }
+    .control-btn:hover {
+      background: #333;
+      color: #fff;
+    }
+    .control-btn.sound-off {
+      color: #666;
+      border-color: #333;
+    }
+    /* Justeringsknappar (-1/+1 min) i same rad som førehandsvala */
+    .preset-btn.adjust-preset-btn {
+      border-style: dashed;
+    }
+
+    /* ── Redigeringspanel for tilpassing av knappar ── */
+    #edit-panel {
+      display: none;
+      background: #111122;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 1.5rem;
+      max-width: 420px;
+      width: 90%;
+    }
+    #edit-panel.visible { display: block; }
+
+    #edit-panel h3 {
+      font-size: 1rem;
+      color: #aaa;
+      margin-bottom: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    #edit-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .edit-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .edit-input {
+      background: #0a0a0a;
+      border: 1px solid #444;
+      color: #00ff41;
+      font-family: 'DSEG7 Classic', monospace;
+      font-size: 1.1rem;
+      padding: 0.4em 0.6em;
+      border-radius: 4px;
+      width: 5em;
+      text-align: right;
+    }
+    .edit-input:focus {
+      outline: none;
+      border-color: #00ff41;
+    }
+
+    .edit-unit {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    .edit-delete {
+      background: none;
+      border: 1px solid #552222;
+      color: #ff4444;
+      font-size: 1rem;
+      width: 2em;
+      height: 2em;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .edit-delete:hover {
+      background: #331111;
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .edit-action-btn {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      color: #ccc;
+      font-size: 0.9rem;
+      padding: 0.5em 1em;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .edit-action-btn:hover { background: #333; color: #fff; }
+    .edit-action-btn.save {
+      border-color: #00ff41;
+      color: #00ff41;
+    }
+    .edit-action-btn.save:hover {
+      background: #00ff41;
+      color: #0a0a0a;
+    }
+
+    /* ── Fullskjermtilpassingar ── */
+    :fullscreen body, :-webkit-full-screen body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    :fullscreen #timer-display, :-webkit-full-screen #timer-display {
+      font-size: clamp(10rem, 28vw, 32rem);
+    }
+    :fullscreen #status-message, :-webkit-full-screen #status-message {
+      font-size: clamp(2rem, 5vw, 5rem);
+    }
+    :fullscreen #overtime-display, :-webkit-full-screen #overtime-display {
+      font-size: clamp(2rem, 7vw, 7rem);
+    }
+
+    /* ── Responsiv tilpassing for små skjermar ── */
+    @media (max-width: 600px) {
+      #app { padding: 1rem; gap: 1rem; }
+      .preset-btn { min-width: 4em; padding: 0.5em 0.8em; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Nedteljingsvisning med spøkelsessiffer i bakgrunnen -->
+    <div id="timer-container">
+      <div id="timer-display" class="state-idle">
+        <span id="timer-ghost">88:88</span>
+        <span id="timer-value">00:00</span>
+      </div>
+    </div>
+
+    <div id="overtime-display"></div>
+    <div id="status-message">TIDA ER UTE</div>
+
+    <!-- Førehandsvalde knappar for taletid -->
+    <div id="presets"></div>
+
+    <!-- Kontrollknappar -->
+    <div id="controls">
+      <button id="btn-pause" class="control-btn" title="Mellomrom">PAUSE</button>
+      <button id="btn-reset" class="control-btn" title="Escape">NULLSTILL</button>
+      <button id="btn-fullscreen" class="control-btn" title="F">FULLSKJERM</button>
+      <button id="btn-sound" class="control-btn" title="S">LYD P&Aring;</button>
+      <button id="btn-edit" class="control-btn">REDIGER</button>
+    </div>
+
+    <!-- Redigeringspanel for tilpassing av tidsknappar -->
+    <div id="edit-panel">
+      <h3>TILPASS KNAPPAR</h3>
+      <div id="edit-list"></div>
+      <div class="edit-actions">
+        <button id="btn-add-preset" class="edit-action-btn">+ Legg til</button>
+        <button id="btn-save-presets" class="edit-action-btn save">Lagre</button>
+        <button id="btn-cancel-edit" class="edit-action-btn">Avbryt</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Tilstand ──
+    // Held styr p&aring; all intern tilstand for nedteljinga
+    const state = {
+      totalSeconds: 0,        // totalt tal sekund for gjeldande nedteljing
+      remainingMs: 0,         // millisekund att
+      isRunning: false,       // om nedteljinga g&aring;r
+      isPaused: false,        // om ho er sett p&aring; pause
+      isExpired: false,       // om tida er ute
+      overtimeMs: 0,          // millisekund over tida
+      startTimestamp: null,    // tidsstempel (performance.now) n&aring;r nedteljinga starta
+      pausedRemainingMs: 0,   // millisekund att n&aring;r ein sette p&aring; pause
+      activePresetIndex: -1,  // kva f&oslash;rehandsval som er aktivt
+      soundEnabled: true,     // om lydalarm er p&aring;
+      presets: [2, 5, 10, 15, 20],  // standardverdiar i minutt
+      editMode: false,        // om redigeringspanelet er ope
+      intervalId: null,       // ID for setInterval
+    };
+
+    // ── DOM-referansar ──
+    const timerDisplay = document.getElementById('timer-display');
+    const timerGhost = document.getElementById('timer-ghost');
+    const timerValue = document.getElementById('timer-value');
+    const overtimeEl = document.getElementById('overtime-display');
+    const statusEl = document.getElementById('status-message');
+    const presetsEl = document.getElementById('presets');
+    const btnPause = document.getElementById('btn-pause');
+    const btnReset = document.getElementById('btn-reset');
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    const btnSound = document.getElementById('btn-sound');
+    const btnEdit = document.getElementById('btn-edit');
+    const editPanel = document.getElementById('edit-panel');
+    const editList = document.getElementById('edit-list');
+    const btnAddPreset = document.getElementById('btn-add-preset');
+    const btnSavePresets = document.getElementById('btn-save-presets');
+    const btnCancelEdit = document.getElementById('btn-cancel-edit');
+
+    // ── Lyd ──
+    // Nyttar Web Audio API for &aring; laga ein enkel bjelleklang utan eksterne filer
+    let audioCtx = null;
+
+    // S&oslash;rgjer for at lydkonteksten er klar (krev brukarinteraksjon f&oslash;rst)
+    function ensureAudioCtx() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // Spelar ein einskild sinustone med mjuk omhylling
+    function playTone(freq, startTime, duration) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.001, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.01);
+    }
+
+    // Spelar ein tretonig bjelleklang n&aring;r tida er ute
+    function playChime() {
+      if (!state.soundEnabled) return;
+      ensureAudioCtx();
+      const t = audioCtx.currentTime;
+      playTone(659.25, t, 0.3);       // E5
+      playTone(1046.50, t + 0.35, 0.4); // C6
+      playTone(783.99, t + 0.75, 0.5);  // G5
+    }
+
+    // ── Nedteljingsmotor ──
+    // Startar ei ny nedteljing fr&aring; oppgjeve tal sekund
+    function startCountdown(totalSeconds) {
+      clearInterval(state.intervalId);
+      state.totalSeconds = totalSeconds;
+      state.remainingMs = totalSeconds * 1000;
+      state.isRunning = true;
+      state.isPaused = false;
+      state.isExpired = false;
+      state.overtimeMs = 0;
+      state.startTimestamp = performance.now();
+      state.pausedRemainingMs = 0;
+
+      timerDisplay.classList.remove('state-paused');
+      statusEl.classList.remove('visible');
+      overtimeEl.style.display = 'none';
+      btnPause.textContent = 'PAUSE';
+
+      updateDisplay();
+      state.intervalId = setInterval(tick, 100);
+    }
+
+    // Vert kalla kvart 100. millisekund for &aring; oppdatera nedteljinga.
+    // Brukar performance.now()-tidsstempel for n&oslash;yaktig tidtaking,
+    // slik at det held seg rett sj&oslash;lv om nettlesarfana er i bakgrunnen.
+    function tick() {
+      if (state.isPaused) return;
+
+      const now = performance.now();
+      const elapsedSinceResume = now - state.startTimestamp;
+      const baseMs = state.pausedRemainingMs > 0
+        ? state.pausedRemainingMs
+        : state.totalSeconds * 1000;
+      const remaining = baseMs - elapsedSinceResume;
+
+      if (remaining <= 0) {
+        if (!state.isExpired) {
+          state.isExpired = true;
+          state.remainingMs = 0;
+          onExpired();
+        }
+        // Held fram med &aring; telja overtid
+        state.overtimeMs = Math.abs(remaining);
+      } else {
+        state.remainingMs = remaining;
+      }
+
+      updateDisplay();
+    }
+
+    // Vert kalla &eacute;in gong n&aring;r tida g&aring;r ut
+    function onExpired() {
+      statusEl.classList.add('visible');
+      playChime();
+    }
+
+    // ── Visning ──
+    // Formaterer sekund til MM:SS-streng
+    function formatTime(totalSec) {
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    // Oppdaterer siffervising, sp&oslash;kelsessiffer, fargetilstand og overtid
+    function updateDisplay() {
+      // Hovudnedteljing
+      const totalSec = state.isExpired ? 0 : Math.ceil(state.remainingMs / 1000);
+      timerValue.textContent = formatTime(totalSec);
+
+      // Tilpassar sp&oslash;kelsessiffra til breidda p&aring; visninga
+      const maxSec = state.totalSeconds || 0;
+      const maxMin = Math.floor(maxSec / 60);
+      if (maxMin >= 100) {
+        timerGhost.textContent = '888:88';
+      } else {
+        timerGhost.textContent = '88:88';
+      }
+
+      // Fargetilstand
+      updateColorState(totalSec);
+
+      // Overtidsvisning
+      if (state.isExpired && state.overtimeMs > 0) {
+        const otSec = Math.floor(state.overtimeMs / 1000);
+        overtimeEl.textContent = '+' + formatTime(otSec);
+        overtimeEl.style.display = 'block';
+      }
+    }
+
+    // Oppdaterer CSS-klasse basert p&aring; kor mykje tid som er att
+    function updateColorState(remainingSec) {
+      timerDisplay.className = '';
+
+      if (!state.isRunning) {
+        timerDisplay.classList.add('state-idle');
+      } else if (state.isExpired) {
+        timerDisplay.classList.add('state-expired');
+      } else if (state.isPaused) {
+        // Beheld fargen, legg til pauseblinking
+        if (remainingSec <= 30) {
+          timerDisplay.classList.add('state-red');
+        } else if (remainingSec <= 120) {
+          timerDisplay.classList.add('state-yellow');
+        } else {
+          timerDisplay.classList.add('state-green');
+        }
+        timerDisplay.classList.add('state-paused');
+      } else if (remainingSec <= 30) {
+        timerDisplay.classList.add('state-red');
+      } else if (remainingSec <= 120) {
+        timerDisplay.classList.add('state-yellow');
+      } else {
+        timerDisplay.classList.add('state-green');
+      }
+    }
+
+    // ── Kontrollar ──
+    // Vekslar mellom pause og framhald
+    function togglePause() {
+      if (!state.isRunning || state.isExpired) return;
+
+      if (state.isPaused) {
+        // Fortset: lagrar nytt tidsstempel, held p&aring; pausetida
+        state.startTimestamp = performance.now();
+        state.isPaused = false;
+        timerDisplay.classList.remove('state-paused');
+        btnPause.textContent = 'PAUSE';
+      } else {
+        // Pause: tek vare p&aring; gjenv&aelig;rande tid
+        state.pausedRemainingMs = state.remainingMs;
+        state.isPaused = true;
+        btnPause.textContent = 'FORTSET';
+        updateDisplay();
+      }
+    }
+
+    // Nullstiller alt til utgangspunktet
+    function resetTimer() {
+      clearInterval(state.intervalId);
+      state.isRunning = false;
+      state.isPaused = false;
+      state.isExpired = false;
+      state.remainingMs = 0;
+      state.overtimeMs = 0;
+      state.pausedRemainingMs = 0;
+      state.activePresetIndex = -1;
+      state.intervalId = null;
+
+      timerValue.textContent = '00:00';
+      timerGhost.textContent = '88:88';
+      overtimeEl.style.display = 'none';
+      statusEl.classList.remove('visible');
+      btnPause.textContent = 'PAUSE';
+
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      updateColorState(0);
+    }
+
+    // Vekslar fullskjermmodus
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    // Justerer gjenv&aelig;rande tid med oppgjeve tal sekund.
+    // Fungerer b&aring;de under nedteljing og p&aring; pause.
+    // Om tida er ute og ein legg til tid, startar nedteljinga att.
+    function adjustTime(deltaSec) {
+      if (!state.isRunning) return;
+
+      // Om tida er ute og ein legg til meir tid, trekkjer det klokka
+      // tilbake fr&aring; overtid og startar nedteljinga p&aring; nytt
+      if (state.isExpired && deltaSec > 0) {
+        state.isExpired = false;
+        state.overtimeMs = 0;
+        statusEl.classList.remove('visible');
+        overtimeEl.style.display = 'none';
+
+        const newMs = deltaSec * 1000;
+        state.totalSeconds = deltaSec;
+        state.remainingMs = newMs;
+        state.pausedRemainingMs = 0;
+        state.startTimestamp = performance.now();
+        updateDisplay();
+        return;
+      }
+
+      // Kan ikkje trekkja fr&aring; tid under overtid
+      if (state.isExpired) return;
+
+      // Reknar ut ny gjenv&aelig;rande tid
+      const currentMs = state.isPaused ? state.pausedRemainingMs : state.remainingMs;
+      const newMs = Math.max(0, currentMs + deltaSec * 1000);
+
+      if (state.isPaused) {
+        state.pausedRemainingMs = newMs;
+        state.remainingMs = newMs;
+      } else {
+        // Nullstiller tidsstempel slik at tick() reknar fr&aring; no
+        state.pausedRemainingMs = newMs;
+        state.startTimestamp = performance.now();
+      }
+
+      state.totalSeconds = Math.max(state.totalSeconds, Math.ceil(newMs / 1000));
+      updateDisplay();
+    }
+
+    // Vekslar lydalarm av og p&aring;
+    function toggleSound() {
+      state.soundEnabled = !state.soundEnabled;
+      btnSound.textContent = state.soundEnabled ? 'LYD P\u00C5' : 'LYD AV';
+      btnSound.classList.toggle('sound-off', !state.soundEnabled);
+      if (state.soundEnabled) ensureAudioCtx();
+    }
+
+    // ── Førehandsvalde knappar ──
+    // Byggjer opp knappane for taletid dynamisk, med -1/+1 min på kvar side
+    function renderPresets() {
+      presetsEl.innerHTML = '';
+
+      // Minus-knapp til venstre
+      const minusBtn = document.createElement('button');
+      minusBtn.className = 'preset-btn adjust-preset-btn';
+      minusBtn.id = 'btn-minus1';
+      minusBtn.title = 'Pil ned';
+      minusBtn.innerHTML = '&minus;1 min';
+      minusBtn.addEventListener('click', () => adjustTime(-60));
+      presetsEl.appendChild(minusBtn);
+
+      // Tidsknappar
+      state.presets.forEach((minutes, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'preset-btn';
+        btn.textContent = minutes >= 1 ? `${minutes} min` : `${minutes * 60} sek`;
+        btn.addEventListener('click', () => {
+          ensureAudioCtx();
+          presetsEl.querySelectorAll('.preset-btn:not(.adjust-preset-btn)').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.activePresetIndex = index;
+          startCountdown(minutes * 60);
+        });
+        if (state.activePresetIndex === index) {
+          btn.classList.add('active');
+        }
+        presetsEl.appendChild(btn);
+      });
+
+      // Pluss-knapp til høgre
+      const plusBtn = document.createElement('button');
+      plusBtn.className = 'preset-btn adjust-preset-btn';
+      plusBtn.id = 'btn-plus1';
+      plusBtn.title = 'Pil opp';
+      plusBtn.textContent = '+1 min';
+      plusBtn.addEventListener('click', () => adjustTime(60));
+      presetsEl.appendChild(plusBtn);
+    }
+
+    // ── Redigeringsmodus ──
+    // Lat brukaren leggja til, fjerna og endra varigheita p&aring; knappane
+    function enterEditMode() {
+      state.editMode = true;
+      editPanel.classList.add('visible');
+      renderEditList();
+    }
+
+    function exitEditMode() {
+      state.editMode = false;
+      editPanel.classList.remove('visible');
+    }
+
+    // Teiknar lista over redigerbare f&oslash;rehandsval
+    function renderEditList() {
+      editList.innerHTML = '';
+      state.presets.forEach((minutes, index) => {
+        const row = document.createElement('div');
+        row.className = 'edit-row';
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'edit-input';
+        input.min = '0.5';
+        input.max = '180';
+        input.step = '0.5';
+        input.value = minutes;
+
+        const unit = document.createElement('span');
+        unit.className = 'edit-unit';
+        unit.textContent = 'min';
+
+        const del = document.createElement('button');
+        del.className = 'edit-delete';
+        del.textContent = '\u00d7';
+        del.addEventListener('click', () => {
+          state.presets.splice(index, 1);
+          renderEditList();
+        });
+
+        row.appendChild(input);
+        row.appendChild(unit);
+        row.appendChild(del);
+        editList.appendChild(row);
+      });
+    }
+
+    // Lagrar f&oslash;rehandsvala til localStorage og teiknar knappane p&aring; nytt
+    function savePresets() {
+      const inputs = editList.querySelectorAll('.edit-input');
+      const newPresets = [];
+      inputs.forEach(input => {
+        const val = parseFloat(input.value);
+        if (val > 0 && val <= 180) newPresets.push(val);
+      });
+      newPresets.sort((a, b) => a - b);
+      if (newPresets.length === 0) newPresets.push(5);
+      state.presets = newPresets;
+      localStorage.setItem('speaker-timer-presets', JSON.stringify(newPresets));
+      exitEditMode();
+      resetTimer();
+      renderPresets();
+    }
+
+    // Hentar lagra f&oslash;rehandsval fr&aring; localStorage ved oppstart
+    function loadPresets() {
+      const saved = localStorage.getItem('speaker-timer-presets');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            state.presets = parsed;
+          }
+        } catch (e) { /* brukar standardverdiar */ }
+      }
+    }
+
+    // ── Tastatursnarvegar ──
+    document.addEventListener('keydown', (e) => {
+      if (state.editMode) return;
+      if (e.target.tagName === 'INPUT') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePause();
+      } else if (e.code === 'Escape') {
+        resetTimer();
+      } else if (e.code === 'KeyF') {
+        toggleFullscreen();
+      } else if (e.code === 'KeyS') {
+        toggleSound();
+      } else if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        adjustTime(60);
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        adjustTime(-60);
+      }
+    });
+
+    // ── Koplar hendingar til knappar ──
+    btnPause.addEventListener('click', togglePause);
+    btnReset.addEventListener('click', resetTimer);
+    btnFullscreen.addEventListener('click', toggleFullscreen);
+    btnSound.addEventListener('click', toggleSound);
+    btnEdit.addEventListener('click', enterEditMode);
+    btnSavePresets.addEventListener('click', savePresets);
+    btnCancelEdit.addEventListener('click', exitEditMode);
+    btnAddPreset.addEventListener('click', () => {
+      state.presets.push(5);
+      renderEditList();
+    });
+
+    // ── Oppstart ──
+    loadPresets();
+    renderPresets();
+    updateColorState(0);
+  </script>
+</body>
+</html>
